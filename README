@@ -1,0 +1,16 @@
+hackplan>
+
+en bot, typ. springer i bakgrunden.
+
+kopplad till ett twitterkonto (botkonto). botkontot låst; protected.
+
+följer en twittrare (dess ägare). noterar ägarens nya och avdroppade följare. berättar för ägaren om avdroppare och nyföljare.
+
+intervall i = 10 eller kanske 120 minuter.
+
+har konfiguration:
+twitter user&pass + ägare
+
+har data:
+lista över senaste sedda följare.
+
