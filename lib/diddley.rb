@@ -2,12 +2,12 @@ require 'yaml'
 require 'rubygems'
 require 'json'
 
-
 class Diddley
   def initialize
     @last_seen_followers = nil
     @config_file = 'config/botdiddley.yml'
     read_config
+    @auth = [@twitteruser, @twitterpass].join(":")
   end
 
   def read_config
@@ -66,9 +66,8 @@ class Diddley
 
   # returns list of followers' ids
   def fetch_followers()
-    auth = [@twitteruser, @twitterpass].join(":")
     url = "http://twitter.com/statuses/followers.json?id=" + @owner
-    cmd = "curl -u #{auth} #{url}"
+    cmd = "curl -u #{@auth} #{url}"
     j = %x[#{cmd}]  # TODO: how to capture error condition?
     #j = %x[cat tests/fixtures/followers.json] # local
     followers = JSON.parse(j)
@@ -77,10 +76,10 @@ class Diddley
     return followers_ids
   end
 
+  # TODO: squeeze many followers into one msg.
   def format_followers(list)
     return [] if list.empty?
     return list.map {|follower| "@#{@owner}: @#{follower} is now following you."}
-    # TODO: squeeze many followers into one msg.
   end
   def format_unfollowers(list)
     return [] if list.empty?
@@ -90,6 +89,9 @@ class Diddley
   def send_tweets(msgs)
     msgs.each do |msg|
       report 'send tweet: ' + msg
+      url = "http://twitter.com/statuses/update.xml"
+      cmd = "curl -u #{@auth} -d 'status=#{msg}' #{url}"
+      r = %x[#{cmd}]
     end
   end
 end
