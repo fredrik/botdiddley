@@ -1,6 +1,7 @@
 require 'yaml'
 require 'rubygems'
 require 'json'
+require 'aws/s3'
 
 class Diddley
   def initialize
@@ -8,6 +9,8 @@ class Diddley
     @config_file = 'config/botdiddley.yml'
     read_config
     @auth = [@twitteruser, @twitterpass].join(":")
+    # TODO: create s3 bucket if it does not exist.
+    
   end
 
   def read_config
@@ -19,7 +22,7 @@ class Diddley
       exit
     end
     # check
-    needed = %w[twitteruser twitterpass owner interval]
+    needed = %w[twitteruser twitterpass owner interval AMAZON_ACCESS_KEY_ID AMAZON_SECRET_ACCESS_KEY AWS_BUCKET]
     needed.each do |wants|
       if not config[wants]
         puts "oh my, config is missing #{wants}."
@@ -31,6 +34,9 @@ class Diddley
     @twitterpass = config['twitterpass']
     @owner       = config['owner']
     @interval    = config['interval']
+    @aws_key_id  = config['AMAZON_ACCESS_KEY_ID']
+    @aws_key     = config['AMAZON_SECRET_ACCESS_KEY']
+    @aws_bucket  = config['AWS_BUCKET']
   end
 
   def go!
