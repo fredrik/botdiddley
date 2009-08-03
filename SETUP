@@ -1,8 +1,0 @@
-well hey, setting things up is easy.
-
-0> create a twitter account for your bot => https://twitter.com/signup
-1> make sure you have a diddley bucket at s3.
-2> edit config/botdiddley.yml.template, save as config/botdiddley.yml
-3> go!
-
-also, make sure you have the yaml and json gems installed.

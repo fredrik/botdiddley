@@ -1,1 +1,14 @@
 bot diddley – a twitter and blues bot for keeping track of twitter followers.
+
+bot diddley will regularly check your list of followers on twitter and notify
+you when someone follows or – more importantly – unfollows you.
+
+
+setting things up is easy:
+
+0> create a twitter account for your bot => https://twitter.com/signup
+0.5> set the account to private if you wish to be private about your followers
+1> you need an amazon web services account
+2> install the yaml, json and s3 gems
+3> edit config/botdiddley.yml.template, save as config/botdiddley.yml
+4> go: ruby botdiddley.rb
