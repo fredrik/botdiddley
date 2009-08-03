@@ -2,6 +2,7 @@ twitteruser: username
 twitterpass: password
 owner: you
 interval: 120
+followers_file: last_seen
 AMAZON_ACCESS_KEY_ID: abcdefghijklmnop
 AMAZON_SECRET_ACCESS_KEY: 1234567891012345
 AWS_BUCKET: botdiddley

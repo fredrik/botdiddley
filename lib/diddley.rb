@@ -1,16 +1,13 @@
-require 'yaml'
 require 'rubygems'
-require 'json'
 require 'aws/s3'
+require 'json'
+require 'yaml'
 
 class Diddley
   def initialize
-    @last_seen_followers = nil
     @config_file = 'config/botdiddley.yml'
-    read_config
-    @auth = [@twitteruser, @twitterpass].join(":")
-    # TODO: create s3 bucket if it does not exist.
-    
+    read_config()
+    check_s3()
   end
 
   def read_config
@@ -22,7 +19,7 @@ class Diddley
       exit
     end
     # check
-    needed = %w[twitteruser twitterpass owner interval AMAZON_ACCESS_KEY_ID AMAZON_SECRET_ACCESS_KEY AWS_BUCKET]
+    needed = %w[twitteruser twitterpass owner interval followers_file aws_key_id aws_key aws_bucket]
     needed.each do |wants|
       if not config[wants]
         puts "oh my, config is missing #{wants}."
@@ -30,13 +27,41 @@ class Diddley
       end
     end
     # & save.
-    @twitteruser = config['twitteruser']
-    @twitterpass = config['twitterpass']
+    @twitter_auth = [config['twitteruser'], config['twitterpass']].join(":")
     @owner       = config['owner']
     @interval    = config['interval']
-    @aws_key_id  = config['AMAZON_ACCESS_KEY_ID']
-    @aws_key     = config['AMAZON_SECRET_ACCESS_KEY']
-    @aws_bucket  = config['AWS_BUCKET']
+    @aws_key_id  = config['aws_key_id']
+    @aws_key     = config['aws_key']
+    @aws_bucket  = config['aws_bucket']
+    @followers_file = config['followers_file']
+  end
+
+  def check_s3
+    AWS::S3::Base.establish_connection!(
+      :access_key_id     => @aws_key_id,
+      :secret_access_key => @aws_key
+    )
+
+    # check credentials
+    begin
+      AWS::S3::Service.buckets
+    rescue AWS::S3::S3Exception => error
+      # now, the following two exceptions are also available, but.. ARGH!
+      # AWS::S3::InvalidAccessKeyId
+      # AWS::S3::SignatureDoesNotMatch
+      puts 'error: improper S3 credentials.'
+      puts error
+      exit()
+    end
+
+    # check existance of bucket.
+    # create bucket if it doesn't exist.
+    begin
+      b = AWS::S3::Bucket.find(@aws_bucket)
+    rescue AWS::S3::NoSuchBucket
+      puts "bucket #{@aws_bucket} not found; creating."
+      AWS::S3::Bucket.create(@aws_bucket)
+    end
   end
 
   def go!
@@ -44,7 +69,7 @@ class Diddley
     while true
       report "wha? checking #{@owner}'s followers."
       check_followers
-      report "sleeping."
+      report "sleeping for #{@interval} minutes."
       sleep(@interval * 60)
     end
   end
@@ -53,33 +78,43 @@ class Diddley
     puts "#{Time.now} #{msg}"
   end
 
-  # checks if there are new followers or if a followers stopped following,
-  # formats and sends tweets to owner.
+  # check if there are new followers or if someone unfollowed.
+  # send tweet to owner.
   def check_followers()
-    fresh = fetch_followers
-    unless @last_seen_followers.nil?
-      new_followers = fresh - @last_seen_followers
-      unfollowers   = @last_seen_followers - fresh
-      report("new followers: "+new_followers.to_s) unless new_followers.empty?
-      report("unfollowers: "+unfollowers.to_s) unless unfollowers.empty?
+    fresh = fetch_followers()
+    last_seen = fetch_last_seen_followers()
+    unless last_seen.nil?
+      new_followers = fresh - last_seen
+      unfollowers   = last_seen - fresh
       msgs = []
-      msgs += format_followers(new_followers)
-      msgs += format_unfollowers(unfollowers)
-      send_tweets(msgs)
+      unless  new_followers.empty?
+        report("new followers: " + new_followers.to_s)
+        msgs += format_followers(new_followers)
+      end
+      unless unfollowers.empty?
+        report("unfollowers: "+unfollowers.to_s)
+        msgs += format_unfollowers(unfollowers)
+      end
+      if msgs.empty?
+        puts 'nothing to report.'
+      else
+        send_tweets(msgs)
+      end
     end
-    @last_seen_followers = fresh
+    # store list of followers on S3.
+    store_followers(fresh)
   end
 
   # returns list of followers' ids
   def fetch_followers()
     url = "http://twitter.com/statuses/followers.json?id=" + @owner
-    cmd = "curl -u #{@auth} #{url}"
+    cmd = "curl -u #{@twitter_auth} #{url}"
     j = %x[#{cmd}]  # TODO: how to capture error condition?
     #j = %x[cat tests/fixtures/followers.json] # local
     followers = JSON.parse(j)
-    followers_ids = followers.map { |follower| follower['screen_name'] }
+    follower_names = followers.map { |follower| follower['screen_name'] }
     # TODO: if followers.length > 100, fetch again.
-    return followers_ids
+    return follower_names
   end
 
   # TODO: squeeze many followers into one msg.
@@ -94,10 +129,47 @@ class Diddley
 
   def send_tweets(msgs)
     msgs.each do |msg|
-      report 'send tweet: ' + msg
+      report 'sending tweet: ' + msg
       url = "http://twitter.com/statuses/update.xml"
-      cmd = "curl -u #{@auth} -d 'status=#{msg}' #{url}"
+      cmd = "curl -u #{@twitter_auth} -d 'status=#{msg}' #{url}"
       r = %x[#{cmd}]
     end
   end
+
+  # store list of followers on S3.
+  def store_followers(ary)
+    puts 'storing list of followers on s3.'
+    contents = ary.to_json
+    AWS::S3::S3Object.store(@followers_file, contents, @aws_bucket)
+    unless AWS::S3::Service.response.success?
+      puts "failed to store #{@followers_file}."
+    end
+  end
+
+  # fetch list of followers from S3.
+  # returns nil if file does not exist.
+  def fetch_last_seen_followers
+    puts 'fetching list of followers from s3.'
+    begin
+      # fetch json from S3.
+      object = AWS::S3::S3Object.find(@followers_file, @aws_bucket)
+    rescue AWS::S3::NoSuchKey
+      puts 'there is no followers file on S3.'
+      return nil
+    end
+
+    begin
+      # parse json.
+      followers = JSON.parse(object.value)
+    rescue JSON::ParserError
+      puts "json parse error. clearing #{@followers_file}."
+      AWS::S3::S3Object.delete(@followers_file, @aws_bucket)
+      unless AWS::S3::Service.response.success?
+        puts "hey, could not delete #{@followers_file}!"
+      end
+    end
+
+    return followers
+  end
+
 end
