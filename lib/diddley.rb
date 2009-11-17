@@ -43,6 +43,7 @@ class Diddley
     )
 
     # check credentials
+    # by forcing a read of the bucket list.
     begin
       AWS::S3::Service.buckets
     rescue AWS::S3::S3Exception => error
@@ -54,12 +55,12 @@ class Diddley
       exit()
     end
 
-    # check existance of bucket.
-    # create bucket if it doesn't exist.
+    # check existence of bucket
+    # create new bucket if one does not exist.
     begin
       b = AWS::S3::Bucket.find(@aws_bucket)
     rescue AWS::S3::NoSuchBucket
-      puts "bucket #{@aws_bucket} not found; creating."
+      puts "bucket #{@aws_bucket} not found – creating."
       AWS::S3::Bucket.create(@aws_bucket)
     end
   end
@@ -78,40 +79,41 @@ class Diddley
     puts "#{Time.now} #{msg}"
   end
 
-  # check if there are new followers or if someone unfollowed.
-  # send tweet to owner.
+  # check if someone unfollowed,
+  # mayhaps send tweet to owner.
   def check_followers()
     fresh = fetch_followers()
+    return if fresh.empty?
     last_seen = fetch_last_seen_followers()
     unless last_seen.nil?
-      new_followers = fresh - last_seen
       unfollowers   = last_seen - fresh
-      msgs = []
-      unless  new_followers.empty?
-        report("new followers: " + new_followers.to_s)
-        msgs += format_followers(new_followers)
-      end
       unless unfollowers.empty?
         report("unfollowers: "+unfollowers.to_s)
-        msgs += format_unfollowers(unfollowers)
-      end
-      if msgs.empty?
-        puts 'nothing to report.'
-      else
+        msgs = format_unfollowers(unfollowers)
         send_tweets(msgs)
+        # store new list of followers on S3.
+        store_followers(fresh)
+      else
+        puts 'nothing to report.'
       end
     end
-    # store list of followers on S3.
-    store_followers(fresh)
   end
 
   # returns list of followers' ids
   def fetch_followers()
     url = "http://twitter.com/statuses/followers.json?id=" + @owner
     cmd = "curl -u #{@twitter_auth} #{url}"
-    j = %x[#{cmd}]  # TODO: how to capture error condition?
+    j = %x[#{cmd}]  # TODO: how to capture error condition? 
     #j = %x[cat tests/fixtures/followers.json] # local
-    followers = JSON.parse(j)
+    begin
+      followers = JSON.parse(j)
+    rescue JSON::ParserError
+      puts 'error: could not parse json.'
+      puts 'payload>'
+      puts j
+      puts
+      return []
+    end
     follower_names = followers.map { |follower| follower['screen_name'] }
     # TODO: if followers.length > 100, fetch again.
     return follower_names
