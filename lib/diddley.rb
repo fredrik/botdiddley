@@ -3,6 +3,8 @@ require 'aws/s3'
 require 'json'
 require 'yaml'
 
+require 'untweet_formatter'
+
 class Diddley
   def initialize
     @config_file = 'config/botdiddley.yml'
@@ -82,20 +84,21 @@ class Diddley
   # check if someone unfollowed,
   # mayhaps send tweet to owner.
   def check_followers()
-    fresh = fetch_followers()
-    return if fresh.empty?
-    last_seen = fetch_last_seen_followers()
-    unless last_seen.nil?
-      unfollowers   = last_seen - fresh
+    begin
+      followers = fetch_followers()
+      last_seen = fetch_last_seen_followers()
+      unfollowers = last_seen - followers
       unless unfollowers.empty?
-        report("unfollowers: "+unfollowers.to_s)
-        msgs = format_unfollowers(unfollowers)
+        report("unfollowers: " + unfollowers.to_s)
+        msgs = UntweetFormatter.format_messages(unfollowers)
         send_tweets(msgs)
-        # store new list of followers on S3.
-        store_followers(fresh)
       else
         puts 'nothing to report.'
       end
+      # store (new) list of followers on S3.
+      store_followers(followers) if followers != last_seen
+    rescue RuntimeError
+      puts "hyorgh!"
     end
   end
 
@@ -112,29 +115,21 @@ class Diddley
       puts 'payload>'
       puts j
       puts
-      return []
+      raise
     end
     follower_names = followers.map { |follower| follower['screen_name'] }
     # TODO: if followers.length > 100, fetch again.
     return follower_names
   end
 
-  # TODO: squeeze many followers into one msg.
-  def format_followers(list)
-    return [] if list.empty?
-    return list.map {|follower| "@#{@owner}: @#{follower} is now following you."}
-  end
-  def format_unfollowers(list)
-    return [] if list.empty?
-    return list.map {|unfollower| "@#{@owner}: @#{unfollower} is no longer following you."}
-  end
-
   def send_tweets(msgs)
     msgs.each do |msg|
-      report 'sending tweet: ' + msg
+      report "sending direct message to #{@owner}: " + msg
+      msg = "d #{@owner} #{msg}"
       url = "http://twitter.com/statuses/update.xml"
       cmd = "curl -u #{@twitter_auth} -d 'status=#{msg}' #{url}"
       r = %x[#{cmd}]
+      # TODO: check return value, raise on error.
     end
   end
 
@@ -145,6 +140,7 @@ class Diddley
     AWS::S3::S3Object.store(@followers_file, contents, @aws_bucket)
     unless AWS::S3::Service.response.success?
       puts "failed to store #{@followers_file}."
+      raise
     end
   end
 
@@ -157,7 +153,7 @@ class Diddley
       object = AWS::S3::S3Object.find(@followers_file, @aws_bucket)
     rescue AWS::S3::NoSuchKey
       puts 'there is no followers file on S3.'
-      return nil
+      return []
     end
 
     begin
@@ -169,6 +165,7 @@ class Diddley
       unless AWS::S3::Service.response.success?
         puts "hey, could not delete #{@followers_file}!"
       end
+      raise
     end
 
     return followers
