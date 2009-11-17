@@ -1,7 +1,7 @@
 class UntweetFormatter
   # ['anna','klas','sven']
   # => ["@anna, @klas and @sven have stopped following you."]
-  def format_messages(names=[])
+  def self.format_messages(names=[])
     return [] if names.empty?
     return ["@#{names[0]} has stopped following you."] if names.length == 1
 
