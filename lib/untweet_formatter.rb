@@ -1,4 +1,4 @@
-class TextFormatter
+class UntweetFormatter
   # ['anna','klas','sven']
   # => ["@anna, @klas and @sven have stopped following you."]
   def format_messages(names=[])
